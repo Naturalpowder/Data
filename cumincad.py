@@ -4,6 +4,8 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import numpy as np
 import re
+import json
+import pandas as pd
 
 header_base = {
     'Connection': 'keep-alive',
@@ -28,26 +30,34 @@ params = {
 
 
 class Cumincad:
-    def __init__(self, search_url: str, url: str, params: dict, keyword: str):
+    def __init__(self, search_url: str, url: str, params: dict, file_path: str):
+        with open(file_path, 'r')as f:
+            self.input = json.loads(f.read())
         self.search_url = search_url
         self.url = url
         self.params = params.copy()
-        self.params['search'] = keyword
+        self.params['search'] = self.input['keyword']
         self.infos = []
 
-    def save_pdfs(self, folder_path: str):
-        path = '{}/{}'.format(folder_path, self.params['search'])
+    def save_pdfs(self):
+        path = '{}{}'.format(self.input['dirPath'], self.params['search'])
         self.mkdir(path)
         with ThreadPoolExecutor(max_workers=5)as executor:
             tasks = [executor.submit(self.save_pdf, item['url'], path, item['name']) for item in self.infos]
             for task in as_completed(tasks):
                 task.result()
 
+    def save_excel(self):
+        if self.input['dirPath']:
+            self.mkdir(self.input['dirPath'])
+        df = pd.DataFrame(self.infos)
+        df.to_excel(self.input['dirPath'] + self.params['search'] + '.xlsx')
+
     @staticmethod
     def save_pdf(url: str, folder_path: str, name: str):
         i = 0
         rstr = r"[\/\\\:\*\?\"\<\>\|]"  # '/ \ : * ? " < > |'
-        new_title = re.sub(rstr, "_", name).replace('\x92', '\'')[:173]
+        new_title = re.sub(rstr, "_", name)[:173]
         path = '{}/{}.pdf'.format(folder_path, new_title)
         if not os.path.exists(path):
             while i < 3:
@@ -65,9 +75,10 @@ class Cumincad:
                     i += 1
         return
 
-    def parse_pages(self, start: int, end: int, step: int):
+    def parse_pages(self):
         with ThreadPoolExecutor(max_workers=1)as executor:
-            tasks = [executor.submit(self.parse_page, first) for first in np.arange(start, end, step)]
+            tasks = [executor.submit(self.parse_page, first) for first in
+                     np.arange(self.input['start'], self.input['end'], self.input['step'])]
             for task in as_completed(tasks):
                 task.result()
         print('Size = ', len(self.infos))
@@ -77,17 +88,20 @@ class Cumincad:
         params = self.params.copy()
         params['first'] = first
         r = requests.get(self.search_url, params=params, headers=header_base)
-        r.encoding = 'ISO-8859-1'
+        r.encoding = 'windows-1252'
         dom = etree.HTML(r.text)
         items = dom.xpath('//tr[@bgcolor]')
         for item in items:
             hrefs = item.xpath('.//a/@href')
             name = item.xpath('.//b/text()')[0]
+            info = item.xpath('.//td/text()')
             for href in hrefs:
                 if 'pdf' in href:
                     path = self.url + href
                     self.infos.append({
                         'name': name,
+                        'author': info[1],
+                        'citation': info[2],
                         'url': path,
                     })
 
@@ -102,6 +116,7 @@ class Cumincad:
 
 
 if __name__ == '__main__':
-    cumincad = Cumincad(search_url, url, params, 'layout')
-    cumincad.parse_pages(0, 20, 20)
-    cumincad.save_pdfs('src/cumincadPDF')
+    cumincad = Cumincad(search_url, url, params, 'info.json')
+    cumincad.parse_pages()
+    cumincad.save_excel()
+    cumincad.save_pdfs()
