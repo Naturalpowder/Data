@@ -47,7 +47,7 @@ class Cumincad:
     def save_pdf(url: str, folder_path: str, name: str):
         i = 0
         rstr = r"[\/\\\:\*\?\"\<\>\|]"  # '/ \ : * ? " < > |'
-        new_title = re.sub(rstr, "_", name)
+        new_title = re.sub(rstr, "_", name).replace('\x92', '\'')[:173]
         path = '{}/{}.pdf'.format(folder_path, new_title)
         if not os.path.exists(path):
             while i < 3:
@@ -102,6 +102,6 @@ class Cumincad:
 
 
 if __name__ == '__main__':
-    cumincad = Cumincad(search_url, url, params, 'generative')
-    cumincad.parse_pages(0, 60, 20)
+    cumincad = Cumincad(search_url, url, params, 'layout')
+    cumincad.parse_pages(0, 20, 20)
     cumincad.save_pdfs('src/cumincadPDF')
